@@ -1,6 +1,18 @@
 Change Log
 ===========
 
+0.0.59
+-----
+- Fixed EOY compounded return calculation
+
+0.0.58
+-----
+- Run fillna(0) on plot's beta (issue #193)
+
+0.0.57
+-----
+- Fixed `sigma` calculation in `stats.probabilistic_ratio()`
+
 0.0.56
 -----
 - Added option to explicitly provide the benchmark title via `benchmark_title=...`
