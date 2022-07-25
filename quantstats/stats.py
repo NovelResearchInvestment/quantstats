@@ -19,6 +19,7 @@
 # limitations under the License.
 
 from warnings import warn
+
 import pandas as _pd
 import numpy as _np
 from math import ceil as _ceil, sqrt as _sqrt
@@ -37,14 +38,14 @@ def pct_rank(prices, window=60):
     return rank.iloc[:, 0] * 100.
 
 
-def compsum(returns):
+def compsum(returns, axis=0):
     """Calculates rolling compounded returns"""
-    return returns.add(1).cumprod() - 1
+    return _np.cumprod(returns + 1, axis=axis) - 1
 
 
-def comp(returns):
+def comp(returns, axis=0):
     """Calculates total compounded returns"""
-    return returns.add(1).prod() - 1
+    return _np.prod(returns + 1, axis=axis) - 1
 
 
 def distribution(returns, compounded=True, prepare_returns=True):
@@ -111,9 +112,20 @@ def outliers(returns, quantile=.95):
     return returns[returns > returns.quantile(quantile)].dropna(how='all')
 
 
-def remove_outliers(returns, quantile=.95):
+def remove_outliers(returns, quantile=.95, sided=False):
     """Returns series of returns without the outliers"""
-    return returns[returns < returns.quantile(quantile)]
+    q_lb = returns.quantile(1 - quantile)
+    q_rb = returns.quantile(quantile)
+    if sided:
+        returns = returns[(returns > q_lb) & (returns < q_rb)]
+    else:
+        returns = returns[returns < q_rb]
+    return returns
+
+
+# def remove_outliers(returns, quantile=.95, sided=False):
+#     """Returns series of returns without the outliers"""
+#     return returns[returns < returns.quantile(quantile)]
 
 
 def best(returns, aggregate=None, compounded=True, prepare_returns=True):
@@ -293,8 +305,7 @@ def sharpe(returns, rf=0., periods=252, annualize=True, smart=False):
     res = returns.mean() / divisor
 
     if annualize:
-        return res * _np.sqrt(
-            1 if periods is None else periods)
+        return res * _np.sqrt(1 if periods is None else periods)
 
     return res
 
@@ -465,8 +476,7 @@ def omega(returns, rf=0.0, required_return=0.0, periods=252):
 
     returns_less_thresh = returns - return_threshold
     numer = returns_less_thresh[returns_less_thresh > 0.0].sum().values[0]
-    denom = -1.0 * \
-        returns_less_thresh[returns_less_thresh < 0.0].sum().values[0]
+    denom = -1.0 * returns_less_thresh[returns_less_thresh < 0.0].sum().values[0]
 
     if denom > 0.0:
         return numer / denom
