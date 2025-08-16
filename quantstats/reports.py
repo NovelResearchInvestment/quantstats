@@ -482,6 +482,10 @@ def html(
             prepare_returns=False,
         )
         tpl = tpl.replace("{{rolling_beta}}", _embed_figure(figfile, figfmt))
+    except Exception as e:
+        import matplotlib.pyplot as __plt
+        __plt.close()
+        print(f"plot_rolling_volatility failed: {e}")
 
     # Rolling volatility analysis
     figfile = _utils._file_stream()
@@ -1667,68 +1671,23 @@ def metrics(
 
     return metrics
 
+def metrics_og(returns, benchmark=None, rf=0., display=True,
+            mode='basic', sep=False, compounded=True,
+            periods_per_year=252, prepare_returns=True,
+            match_dates=False, **kwargs):
 
-def plots(
-    returns,
-    benchmark=None,
-    grayscale=False,
-    figsize=(8, 5),
-    mode="basic",
-    compounded=True,
-    periods_per_year=252,
-    prepare_returns=True,
-    match_dates=True,
-    **kwargs,
-):
-    """
-    Generate comprehensive visualization plots for portfolio performance.
+    win_year, _ = _get_trading_periods(periods_per_year)
 
-    This function creates a complete set of performance visualization plots
-    including returns, drawdowns, distributions, and rolling metrics. It can
-    generate either basic plots or a full comprehensive suite.
+    benchmark_col = 'Benchmark'
+    if benchmark is not None:
+        if isinstance(benchmark, str):
+            benchmark_col = f'Benchmark ({benchmark.upper()})'
+        elif isinstance(benchmark, _pd.DataFrame) and len(benchmark.columns) > 1:
+            raise ValueError("`benchmark` must be a pandas Series, "
+                             "but a multi-column DataFrame was passed")
 
-    Parameters
-    ----------
-    returns : pd.Series or pd.DataFrame
-        Daily returns data for the strategy/portfolio
-    benchmark : pd.Series, str, or None, default None
-        Benchmark returns for comparison
-    grayscale : bool, default False
-        Whether to generate charts in grayscale
-    figsize : tuple, default (8, 5)
-        Figure size for plots as (width, height)
-    mode : str, default "basic"
-        Plot mode - "basic" for essential plots, "full" for comprehensive suite
-    compounded : bool, default True
-        Whether to compound returns for calculations
-    periods_per_year : int, default 252
-        Number of trading periods per year
-    prepare_returns : bool, default True
-        Whether to prepare/clean returns data
-    match_dates : bool, default True
-        Whether to align returns and benchmark start dates
-    **kwargs
-        Additional keyword arguments:
-        - strategy_title: Custom name for the strategy
-        - benchmark_title: Custom name for the benchmark
-        - active: Whether to show active returns vs benchmark
+    blank = ['']
 
-    Returns
-    -------
-    None
-        Displays various performance plots
-
-    Examples
-    --------
-    >>> plots(returns, benchmark='^GSPC', mode="full")
-    >>> plots(returns, grayscale=True, figsize=(10, 6))
-    """
-    # Extract title parameters from kwargs
-    benchmark_colname = kwargs.get("benchmark_title", "Benchmark")
-    strategy_colname = kwargs.get("strategy_title", "Strategy")
-    active = kwargs.get("active", False)
-
-    # Handle multiple strategy columns
     if isinstance(returns, _pd.DataFrame):
         if len(returns.columns) > 1:
             raise ValueError("`returns` needs to be a Pandas Series or one column DataFrame. multi colums DataFrame was passed")
@@ -1993,9 +1952,365 @@ def plots(
 
     return metrics
 
-def plots(returns, benchmark=None, grayscale=False,
+
+def plots(
+    returns,
+    benchmark=None,
+    grayscale=False,
+    figsize=(8, 5),
+    mode="basic",
+    compounded=True,
+    periods_per_year=252,
+    prepare_returns=True,
+    match_dates=True,
+    **kwargs,
+):
+    """
+    Generate comprehensive visualization plots for portfolio performance.
+
+    This function creates a complete set of performance visualization plots
+    including returns, drawdowns, distributions, and rolling metrics. It can
+    generate either basic plots or a full comprehensive suite.
+
+    Parameters
+    ----------
+    returns : pd.Series or pd.DataFrame
+        Daily returns data for the strategy/portfolio
+    benchmark : pd.Series, str, or None, default None
+        Benchmark returns for comparison
+    grayscale : bool, default False
+        Whether to generate charts in grayscale
+    figsize : tuple, default (8, 5)
+        Figure size for plots as (width, height)
+    mode : str, default "basic"
+        Plot mode - "basic" for essential plots, "full" for comprehensive suite
+    compounded : bool, default True
+        Whether to compound returns for calculations
+    periods_per_year : int, default 252
+        Number of trading periods per year
+    prepare_returns : bool, default True
+        Whether to prepare/clean returns data
+    match_dates : bool, default True
+        Whether to align returns and benchmark start dates
+    **kwargs
+        Additional keyword arguments:
+        - strategy_title: Custom name for the strategy
+        - benchmark_title: Custom name for the benchmark
+        - active: Whether to show active returns vs benchmark
+
+    Returns
+    -------
+    None
+        Displays various performance plots
+
+    Examples
+    --------
+    >>> plots(returns, benchmark='^GSPC', mode="full")
+    >>> plots(returns, grayscale=True, figsize=(10, 6))
+    """
+    # Extract title parameters from kwargs
+    benchmark_colname = kwargs.get("benchmark_title", "Benchmark")
+    strategy_colname = kwargs.get("strategy_title", "Strategy")
+    active = kwargs.get("active", False)
+
+    # Handle multiple strategy columns
+    if isinstance(returns, _pd.DataFrame):
+        if len(returns.columns) > 1:
+            raise ValueError(
+                "`returns` needs to be a Pandas Series or one column DataFrame. multi colums DataFrame was passed")
+        returns = returns[returns.columns[0]]
+
+    if prepare_returns:
+        returns = _utils._prepare_returns(returns)
+
+    df = _pd.DataFrame({"returns": returns})
+
+    if benchmark is not None:
+        blank = ['', '']
+        benchmark = _utils._prepare_benchmark(benchmark, returns.index, rf)
+        if match_dates is True:
+            returns, benchmark = _match_dates(returns, benchmark)
+        df["returns"] = returns
+        df["benchmark"] = benchmark
+
+    df = df.fillna(0)
+
+    # pct multiplier
+    pct = 100 if display or "internal" in kwargs else 1
+    if kwargs.get("as_pct", False):
+        pct = 100
+
+    # return df
+    dd = _calc_dd(df, display=(display or "internal" in kwargs),
+                  as_pct=kwargs.get("as_pct", False))
+
+    metrics = _pd.DataFrame()
+
+    s_start = {'returns': df['returns'].index.strftime('%Y-%m-%d')[0]}
+    s_end = {'returns': df['returns'].index.strftime('%Y-%m-%d')[-1]}
+    s_rf = {'returns': rf}
+
+    if "benchmark" in df:
+        s_start['benchmark'] = df['benchmark'].index.strftime('%Y-%m-%d')[0]
+        s_end['benchmark'] = df['benchmark'].index.strftime('%Y-%m-%d')[-1]
+        s_rf['benchmark'] = rf
+
+    metrics['Start Period'] = _pd.Series(s_start)
+    metrics['End Period'] = _pd.Series(s_end)
+    metrics['Risk-Free Rate %'] = _pd.Series(s_rf) * 100
+    metrics['Time in Market %'] = _stats.exposure(
+        df, prepare_returns=False) * pct
+
+    metrics['~'] = blank
+
+    if compounded:
+        metrics['Cumulative Return %'] = (
+            _stats.comp(df) * pct).map('{:,.2f}'.format)
+    else:
+        metrics['Total Return %'] = (df.sum() * pct).map('{:,.2f}'.format)
+
+    metrics['CAGR﹪%'] = _stats.cagr(df, rf, compounded) * pct
+
+    metrics['~~~~~~~~~~~~~~'] = blank
+
+    metrics['Sharpe'] = _stats.sharpe(df, rf, win_year, True)
+    metrics['Prob. Sharpe Ratio %'] = _stats.probabilistic_sharpe_ratio(
+        df, rf, win_year, False) * pct
+    if mode.lower() == 'full':
+        metrics['Smart Sharpe'] = _stats.smart_sharpe(df, rf, win_year, True)
+        # metrics['Prob. Smart Sharpe Ratio %'] = _stats.probabilistic_sharpe_ratio(df, rf, win_year, False, True) * pct
+
+    metrics['Sortino'] = _stats.sortino(df, rf, win_year, True)
+    if mode.lower() == 'full':
+        # metrics['Prob. Sortino Ratio %'] = _stats.probabilistic_sortino_ratio(df, rf, win_year, False) * pct
+        metrics['Smart Sortino'] = _stats.smart_sortino(df, rf, win_year, True)
+        # metrics['Prob. Smart Sortino Ratio %'] = _stats.probabilistic_sortino_ratio(df, rf, win_year, False, True) * pct
+
+    metrics['Sortino/√2'] = metrics['Sortino'] / _sqrt(2)
+    if mode.lower() == 'full':
+        # metrics['Prob. Sortino/√2 Ratio %'] = _stats.probabilistic_adjusted_sortino_ratio(df, rf, win_year, False) * pct
+        metrics['Smart Sortino/√2'] = metrics['Smart Sortino'] / _sqrt(2)
+        # metrics['Prob. Smart Sortino/√2 Ratio %'] = _stats.probabilistic_adjusted_sortino_ratio(df, rf, win_year, False, True) * pct
+    metrics['Omega'] = _stats.omega(df, rf, 0., win_year)
+
+    metrics['~~~~~~~~'] = blank
+    metrics['Max Drawdown %'] = blank
+    metrics['Longest DD Days'] = blank
+
+    if mode.lower() == 'full':
+        ret_vol = _stats.volatility(
+            df['returns'], win_year, True, prepare_returns=False) * pct
+        if "benchmark" in df:
+            bench_vol = _stats.volatility(
+                df['benchmark'], win_year, True, prepare_returns=False) * pct
+            metrics['Volatility (ann.) %'] = [ret_vol, bench_vol]
+            metrics['R^2'] = _stats.r_squared(
+                df['returns'], df['benchmark'], prepare_returns=False)
+            metrics['Information Ratio'] = _stats.information_ratio(
+                df['returns'], df['benchmark'], prepare_returns=False)
+        else:
+            metrics['Volatility (ann.) %'] = [ret_vol]
+
+        metrics['Calmar'] = _stats.calmar(df, prepare_returns=False)
+        metrics['Skew'] = _stats.skew(df, prepare_returns=False)
+        metrics['Kurtosis'] = _stats.kurtosis(df, prepare_returns=False)
+
+        metrics['~~~~~~~~~~'] = blank
+
+        metrics['Expected Daily %%'] = _stats.expected_return(
+            df, prepare_returns=False) * pct
+        metrics['Expected Monthly %%'] = _stats.expected_return(
+            df, aggregate='M', prepare_returns=False) * pct
+        metrics['Expected Yearly %%'] = _stats.expected_return(
+            df, aggregate='A', prepare_returns=False) * pct
+        metrics['Kelly Criterion %'] = _stats.kelly_criterion(
+            df, prepare_returns=False) * pct
+        metrics['Risk of Ruin %'] = _stats.risk_of_ruin(
+            df, prepare_returns=False)
+
+        metrics['Daily Value-at-Risk %'] = -abs(_stats.var(
+            df, prepare_returns=False) * pct)
+        metrics['Expected Shortfall (cVaR) %'] = -abs(_stats.cvar(
+            df, prepare_returns=False) * pct)
+
+    metrics['~~~~~~'] = blank
+
+    if mode.lower() == 'full':
+        metrics['Max Consecutive Wins *int'] = _stats.consecutive_wins(df)
+        metrics['Max Consecutive Losses *int'] = _stats.consecutive_losses(df)
+
+    metrics['Gain/Pain Ratio'] = _stats.gain_to_pain_ratio(df, rf)
+    metrics['Gain/Pain (1M)'] = _stats.gain_to_pain_ratio(df, rf, "M")
+    # if mode.lower() == 'full':
+    #     metrics['GPR (3M)'] = _stats.gain_to_pain_ratio(df, rf, "Q")
+    #     metrics['GPR (6M)'] = _stats.gain_to_pain_ratio(df, rf, "2Q")
+    #     metrics['GPR (1Y)'] = _stats.gain_to_pain_ratio(df, rf, "A")
+    metrics['~~~~~~~'] = blank
+
+    metrics['Payoff Ratio'] = _stats.payoff_ratio(df, prepare_returns=False)
+    metrics['Profit Factor'] = _stats.profit_factor(df, prepare_returns=False)
+    metrics['Common Sense Ratio'] = _stats.common_sense_ratio(
+        df, prepare_returns=False)
+    metrics['CPC Index'] = _stats.cpc_index(df, prepare_returns=False)
+    metrics['Tail Ratio'] = _stats.tail_ratio(df, prepare_returns=False)
+    metrics['Outlier Win Ratio'] = _stats.outlier_win_ratio(
+        df, prepare_returns=False)
+    metrics['Outlier Loss Ratio'] = _stats.outlier_loss_ratio(
+        df, prepare_returns=False)
+
+    # returns
+    metrics['~~'] = blank
+    comp_func = _stats.comp if compounded else _np.sum
+
+    today = df.index[-1]  # _dt.today()
+    metrics['MTD %'] = comp_func(
+        df[df.index >= _dt(today.year, today.month, 1)]) * pct
+
+    d = today - relativedelta(months=3)
+    metrics['3M %'] = comp_func(df[df.index >= d]) * pct
+
+    d = today - relativedelta(months=6)
+    metrics['6M %'] = comp_func(df[df.index >= d]) * pct
+
+    metrics['YTD %'] = comp_func(df[df.index >= _dt(today.year, 1, 1)]) * pct
+
+    d = today - relativedelta(years=1)
+    metrics['1Y %'] = comp_func(df[df.index >= d]) * pct
+
+    d = today - relativedelta(months=35)
+    metrics['3Y (ann.) %'] = _stats.cagr(
+        df[df.index >= d], 0., compounded) * pct
+
+    d = today - relativedelta(months=59)
+    metrics['5Y (ann.) %'] = _stats.cagr(
+        df[df.index >= d], 0., compounded) * pct
+
+    d = today - relativedelta(years=10)
+    metrics['10Y (ann.) %'] = _stats.cagr(
+        df[df.index >= d], 0., compounded) * pct
+
+    metrics['All-time (ann.) %'] = _stats.cagr(df, 0., compounded) * pct
+
+    # best/worst
+    if mode.lower() == 'full':
+        metrics['~~~'] = blank
+        metrics['Best Day %'] = _stats.best(df, prepare_returns=False) * pct
+        metrics['Worst Day %'] = _stats.worst(df, prepare_returns=False) * pct
+        metrics['Best Month %'] = _stats.best(
+            df, aggregate='M', prepare_returns=False) * pct
+        metrics['Worst Month %'] = _stats.worst(
+            df, aggregate='M', prepare_returns=False) * pct
+        metrics['Best Year %'] = _stats.best(
+            df, aggregate='A', prepare_returns=False) * pct
+        metrics['Worst Year %'] = _stats.worst(
+            df, aggregate='A', prepare_returns=False) * pct
+
+    # dd
+    metrics['~~~~'] = blank
+    for ix, row in dd.iterrows():
+        metrics[ix] = row
+    metrics['Recovery Factor'] = _stats.recovery_factor(df)
+    metrics['Ulcer Index'] = _stats.ulcer_index(df)
+    metrics['Serenity Index'] = _stats.serenity_index(df, rf)
+
+    # win rate
+    if mode.lower() == 'full':
+        metrics['~~~~~'] = blank
+        metrics['Avg. Up Month %'] = _stats.avg_win(
+            df, aggregate='M', prepare_returns=False) * pct
+        metrics['Avg. Down Month %'] = _stats.avg_loss(
+            df, aggregate='M', prepare_returns=False) * pct
+        metrics['Win Days %%'] = _stats.win_rate(
+            df, prepare_returns=False) * pct
+        metrics['Win Month %%'] = _stats.win_rate(
+            df, aggregate='M', prepare_returns=False) * pct
+        metrics['Win Quarter %%'] = _stats.win_rate(
+            df, aggregate='Q', prepare_returns=False) * pct
+        metrics['Win Year %%'] = _stats.win_rate(
+            df, aggregate='A', prepare_returns=False) * pct
+
+        if "benchmark" in df:
+            metrics['~~~~~~~~~~~~'] = blank
+            greeks = _stats.greeks(
+                df['returns'], df['benchmark'], win_year, prepare_returns=False)
+            metrics['Beta'] = [str(round(greeks['beta'], 2)), '-']
+            metrics['Alpha'] = [str(round(greeks['alpha'], 2)), '-']
+            metrics['Correlation'] = [
+                str(round(df['benchmark'].corr(df['returns']) * pct, 2))+'%', '-']
+            metrics['Treynor Ratio'] = [str(round(_stats.treynor_ratio(
+                df['returns'], df['benchmark'], win_year, rf)*pct, 2))+'%', '-']
+
+    # prepare for display
+    for col in metrics.columns:
+        try:
+            metrics[col] = metrics[col].astype(float).round(2)
+            if display or "internal" in kwargs:
+                metrics[col] = metrics[col].astype(str)
+        except Exception:
+            pass
+        if (display or "internal" in kwargs) and "*int" in col:
+            metrics[col] = metrics[col].str.replace('.0', '', regex=False)
+            metrics.rename({col: col.replace("*int", "")},
+                           axis=1, inplace=True)
+        if (display or "internal" in kwargs) and "%" in col:
+            metrics[col] = metrics[col] + '%'
+    try:
+        metrics['Longest DD Days'] = _pd.to_numeric(
+            metrics['Longest DD Days']).astype('int')
+        metrics['Avg. Drawdown Days'] = _pd.to_numeric(
+            metrics['Avg. Drawdown Days']).astype('int')
+
+        if display or "internal" in kwargs:
+            metrics['Longest DD Days'] = metrics['Longest DD Days'].astype(str)
+            metrics['Avg. Drawdown Days'] = metrics['Avg. Drawdown Days'
+                                                    ].astype(str)
+    except Exception:
+        metrics['Longest DD Days'] = '-'
+        metrics['Avg. Drawdown Days'] = '-'
+        if display or "internal" in kwargs:
+            metrics['Longest DD Days'] = '-'
+            metrics['Avg. Drawdown Days'] = '-'
+
+    metrics.columns = [
+        col if '~' not in col else '' for col in metrics.columns]
+    metrics.columns = [
+        col[:-1] if '%' in col else col for col in metrics.columns]
+    metrics = metrics.T
+
+    if "benchmark" in df:
+        metrics.columns = ['Strategy', benchmark_col]
+    else:
+        metrics.columns = ['Strategy']
+
+    # cleanups
+    metrics.replace([-0, '-0'], 0, inplace=True)
+    metrics.replace([_np.nan, -_np.nan, _np.inf, -_np.inf,
+                     '-nan%', 'nan%', '-nan', 'nan',
+                    '-inf%', 'inf%', '-inf', 'inf'], '-', inplace=True)
+
+    if display:
+        print(_tabulate(metrics, headers="keys", tablefmt='simple'))
+        return None
+
+    if not sep:
+        metrics = metrics[metrics.index != '']
+
+    # remove spaces from column names
+    metrics = metrics.T
+    metrics.columns = [c.replace(' %', '').replace(
+        ' *int', '').strip() for c in metrics.columns]
+    metrics = metrics.T
+
+    return metrics
+
+def plots_og(returns, benchmark=None, grayscale=False,
           figsize=(8, 5), mode='basic', compounded=True,
-          periods_per_year=252, prepare_returns=True, match_dates=False):
+          periods_per_year=252, prepare_returns=True, match_dates=False, **kwargs):
+
+    # Extract title parameters from kwargs
+    benchmark_colname = kwargs.get("benchmark_title", "Benchmark")
+    strategy_colname = kwargs.get("strategy_title", "Strategy")
+    active = kwargs.get("active", False)
 
     # Get trading periods for rolling window calculations
     win_year, win_half_year = _get_trading_periods(periods_per_year)
