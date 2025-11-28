@@ -1676,17 +1676,31 @@ def metrics_og(returns, benchmark=None, rf=0., display=True,
             periods_per_year=252, prepare_returns=True,
             match_dates=False, **kwargs):
 
+    # Get trading periods for annualization calculations
     win_year, _ = _get_trading_periods(periods_per_year)
 
-    benchmark_col = 'Benchmark'
+    # Extract column names from kwargs or use defaults
+    benchmark_colname = kwargs.get("benchmark_title", "Benchmark")
+    strategy_colname = kwargs.get("strategy_title", "Strategy")
+
+    # Handle benchmark column naming
     if benchmark is not None:
         if isinstance(benchmark, str):
-            benchmark_col = f'Benchmark ({benchmark.upper()})'
+            benchmark_colname = f"Benchmark ({benchmark.upper()})"
         elif isinstance(benchmark, _pd.DataFrame) and len(benchmark.columns) > 1:
-            raise ValueError("`benchmark` must be a pandas Series, "
-                             "but a multi-column DataFrame was passed")
+            raise ValueError(
+                "`benchmark` must be a pandas Series, "
+                "but a multi-column DataFrame was passed"
+            )
 
-    blank = ['']
+    # Handle strategy column naming for multiple strategies
+    if isinstance(returns, _pd.DataFrame):
+        if len(returns.columns) > 1:
+            blank = [""] * len(returns.columns)
+            if isinstance(strategy_colname, str):
+                strategy_colname = list(returns.columns)
+    else:
+        blank = [""]
 
     if isinstance(returns, _pd.DataFrame):
         if len(returns.columns) > 1:
